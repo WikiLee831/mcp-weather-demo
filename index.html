@@ -148,7 +148,7 @@
   .btn { padding: 6px 15px; }
   .dot { width: 36px; height: 36px; }
   .controls { gap: 8px; }
-  .main { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .main { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 12px; align-items: start; }
   .stage { padding: 12px 10px 8px; border-radius: 14px; }
   .actor { padding: 4px 4px 6px; gap: 2px; }
   .actor .ico { width: 58px; height: 58px; font-size: 32px; }
@@ -156,7 +156,12 @@
   .lanes { margin-top: 2px; }
   .msg { height: 47px; }
   .msg .label { top: 0; }
-  .msg .label .n { width: 25px; height: 25px; }
+  .msg .label .n { width: 25px; height: 25px; flex: none; }
+  .msg .label { max-width: calc(28% - 6px); justify-content: center; }
+  .actors { display: block; position: relative; height: 112px; }
+  .actors .actor { position: absolute; top: 0; width: 26%; transform: translateX(-50%); }
+  .actors .actor.on { transform: translate(-50%, -2px); }
+  .msg .label > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .msg .arrow { top: 32px; }
   .detail { grid-template-columns: 1fr; gap: 12px; }
   .panel { padding: 14px 18px; border-radius: 14px; }
@@ -253,40 +258,40 @@ const ACTORS = [
 const IDX = Object.fromEntries(ACTORS.map((a, i) => [a.id, i]));
 
 const STEPS = [
-  { from: "user", to: "client", label: "「台北今天天氣如何？」",
+  { from: "user", to: "client", label: "「台北天氣如何？」",
     title: "使用者提問",
     explain: "使用者用一般的中文問 AI 助理。AI 本身不知道「今天」的天氣，它的知識停在訓練的時候。",
     analogy: "就像你問一位很博學的朋友，但他手邊沒有手機，沒辦法查即時資訊。",
     fmt: "自然語言", code: "台北今天天氣如何？" },
-  { from: "client", to: "server", label: "tools/call：get_weather",
+  { from: "client", to: "server", label: "呼叫 get_weather",
     title: "AI 決定使用工具",
     explain: "AI 發現需要即時資料，於是用 MCP 規定的格式（JSON-RPC）呼叫天氣伺服器提供的工具 get_weather，並帶上參數「Taipei」。",
     analogy: "MCP 就像 USB 插座：不管是哪一家的工具，只要符合規格，AI 都能用同一種方式呼叫。",
     fmt: "JSON-RPC 請求",
     code: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_weather","arguments":{"city":"Taipei","unit":"celsius"}}}',
     hl: ["\"tools/call\"", "\"get_weather\"", "\"Taipei\""] },
-  { from: "server", to: "api", label: "GET /weather?city=Taipei",
+  { from: "server", to: "api", label: "GET /weather",
     title: "伺服器去查真正的資料",
     explain: "MCP Server 收到請求後，轉成天氣服務看得懂的一般網路請求（HTTP），去外部 API 取資料。",
     analogy: "MCP Server 像翻譯兼跑腿：把 AI 的標準請求，翻成各家服務自己的語言。",
     fmt: "HTTP 請求",
     code: "GET /v1/weather?city=Taipei&unit=celsius HTTP/1.1\nHost: api.weather.service\nAccept: application/json",
     hl: ["city=Taipei"] },
-  { from: "api", to: "server", label: "回傳：24°C、多雲、降雨 40%",
+  { from: "api", to: "server", label: "24°C、多雲、雨 40%",
     title: "天氣 API 回傳資料",
     explain: "天氣服務把查到的原始資料（JSON）送回 MCP Server。這種格式每一家都不一樣，所以需要 Server 來整理。",
     analogy: "跑腿的人拿到一張寫滿數字的單子，接下來要整理成老闆看得懂的樣子。",
     fmt: "HTTP 回應（JSON）",
     code: '{"city":"Taipei","temp_c":24,"condition":"多雲短暫雨","rain_prob":0.4}',
     hl: ["24", "\"多雲短暫雨\"", "0.4"] },
-  { from: "server", to: "client", label: "tools/call 結果",
+  { from: "server", to: "client", label: "回傳工具結果",
     title: "伺服器用標準格式回覆 AI",
     explain: "MCP Server 把結果包成 MCP 規定的回應格式送回 AI 助理，id 和請求時相同（都是 1），AI 就知道這是哪一次呼叫的答案。",
     analogy: "不管背後接的是哪家天氣服務，AI 收到的格式永遠一樣，換供應商也不用改 AI。",
     fmt: "JSON-RPC 回應",
     code: '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"台北市目前天氣：多雲短暫雨，氣溫 24°C，降雨機率 40%。"}],"isError":false}}',
     hl: ["\"id\"", "\"台北市目前天氣：多雲短暫雨，氣溫 24°C，降雨機率 40%。\""] },
-  { from: "client", to: "user", label: "「出門記得帶傘！」",
+  { from: "client", to: "user", label: "「記得帶傘！」",
     title: "AI 整理成口語回答",
     explain: "AI 把工具給的資料，加上自己的理解，寫成自然、貼心的回答給使用者。",
     analogy: "博學的朋友拿到即時資料後，不只報數字，還會提醒你帶傘。",
@@ -299,12 +304,12 @@ let cur = 0;          // 0 = 總覽, 1..N = 步驟
 let timer = null;
 
 // ---------- build static parts ----------
-$("actors").innerHTML = ACTORS.map(a =>
-  `<div class="actor" tabindex="0" role="button" data-id="${a.id}" style="--c:${a.c}">
+$("actors").innerHTML = ACTORS.map((a, i) =>
+  `<div class="actor" tabindex="0" role="button" data-id="${a.id}" style="--c:${a.c};left:${8 + i * 28}%">
      <div class="ico" aria-hidden="true">${a.ico}</div><div class="name">${a.name}</div><div class="role">${a.role}</div>
    </div>`).join("");
 
-const colX = i => (i + 0.5) * 25;  // % center of each column
+const colX = i => 8 + i * 28;  // % 每個角色（生命線）的中心位置，兩側留白較少
 $("lanes").innerHTML =
   ACTORS.map((a, i) => `<div class="lifeline" style="left:${colX(i)}%"></div>`).join("") +
   STEPS.map((s, k) => {
