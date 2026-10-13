@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP 天氣查詢流程</title>
+<style>
+  :root {
+    --bg: #F5F7FB;
+    --card: #FFFFFF;
+    --ink: #1A1F36;
+    --muted: #5B6178;
+    --line: #DDE2EE;
+    --faint: #C9CEDC;
+    --soft: #EEF2FA;
+    --user: #D23C70;
+    --client: #6D3FD0;
+    --server: #2563D9;
+    --api: #0E8F80;
+    --accent: #2563D9;
+    --code-bg: #F7F8FC;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Microsoft JhengHei", "微軟正黑體", "PingFang TC", "Noto Sans TC", sans-serif;
+    font-size: 18px;
+    line-height: 1.55;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; display: flex; flex-direction: column; gap: 22px; }
+
+  /* Header */
+  h1 { margin: 0; font-size: 34px; line-height: 1.25; }
+  .sub { margin: 6px 0 0; color: var(--muted); font-size: 19px; }
+  .sub kbd { font-family: inherit; font-size: 15px; background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; }
+
+  /* Controls */
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .btn {
+    font: inherit; font-size: 18px; font-weight: 700; cursor: pointer;
+    border-radius: 999px; padding: 10px 20px; border: 2px solid var(--line);
+    background: var(--card); color: var(--ink); transition: background .15s, border-color .15s, color .15s;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #1D50B5; color: #fff; }
+  .btn:focus-visible, .dot:focus-visible, .actor:focus-visible { outline: 3px solid #9BB8F0; outline-offset: 2px; }
+  .dots { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dot {
+    font: inherit; font-size: 17px; font-weight: 700; cursor: pointer;
+    width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--line);
+    background: var(--card); color: var(--muted);
+  }
+  .dot.done { background: var(--soft); color: var(--ink); }
+  .dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .spacer { flex: 1; }
+
+  /* Stage: sequence diagram */
+  .stage { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 12px 16px; box-shadow: 0 2px 10px rgba(26,31,54,.05); }
+  .actors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .actor {
+    display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px;
+    padding: 12px 6px; border-radius: 14px; border: 2px solid transparent; cursor: pointer;
+    transition: background .2s, border-color .2s, transform .2s;
+  }
+  .actor .ico { font-size: 44px; line-height: 1; width: 78px; height: 78px; display: grid; place-items: center; border-radius: 50%; background: var(--soft); transition: box-shadow .2s, background .2s; }
+  .actor .name { font-size: 21px; font-weight: 700; }
+  .actor .role { font-size: 15px; color: var(--muted); }
+  .actor.on { transform: translateY(-2px); }
+  .actor.on .ico { background: #fff; box-shadow: 0 0 0 4px var(--c), 0 0 18px var(--c); }
+  .actor.on .name { color: var(--c); }
+
+  .lanes { position: relative; margin-top: 8px; overflow: hidden; padding-top: 4px; }
+  .lifeline { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--line); }
+  .msg { position: relative; height: 74px; }
+  .msg .arrow {
+    position: absolute; top: 44px; height: 4px; border-radius: 2px; background: var(--faint);
+    transition: background .25s, opacity .25s;
+  }
+  .msg .arrow::after {
+    content: ""; position: absolute; top: -8px; width: 0; height: 0;
+    border-top: 10px solid transparent; border-bottom: 10px solid transparent;
+  }
+  .msg.right .arrow::after { right: -4px; border-left: 16px solid var(--faint); }
+  .msg.left  .arrow::after { left: -4px;  border-right: 16px solid var(--faint); }
+  .msg .label {
+    position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap;
+    font-size: 17px; color: var(--muted); display: flex; align-items: center; gap: 8px; cursor: pointer;
+  }
+  .msg .label .n { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--soft); font-weight: 700; font-size: 15px; color: var(--muted); }
+  .msg.future { opacity: .45; }
+  .msg.done .arrow { background: #9AA6C4; }
+  .msg.done.right .arrow::after { border-left-color: #9AA6C4; }
+  .msg.done.left .arrow::after { border-right-color: #9AA6C4; }
+  .msg.done .label { color: var(--ink); }
+  .msg.on .arrow { background: var(--c); }
+  .msg.on.right .arrow::after { border-left-color: var(--c); }
+  .msg.on.left .arrow::after { border-right-color: var(--c); }
+  .msg.on .label { color: var(--c); font-weight: 700; font-size: 19px; }
+  .msg.on .label .n { background: var(--c); color: #fff; }
+  .packet {
+    display: none; position: absolute; top: -9px; width: 22px; height: 22px; margin-left: -11px;
+    border-radius: 50%; background: var(--c); box-shadow: 0 0 0 5px rgba(255,255,255,.9), 0 0 14px var(--c);
+  }
+  .msg.on .packet { display: block; animation: go 1.6s ease-in-out infinite; }
+  .msg.left.on .packet { animation-name: back; }
+  @keyframes go   { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+  @keyframes back { 0% { left: 100%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: 0; opacity: 0; } }
+
+  /* Detail panel */
+  .detail { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; box-shadow: 0 2px 10px rgba(26,31,54,.05); min-width: 0; }
+  .step-tag { display: inline-block; font-size: 16px; font-weight: 700; color: #fff; background: var(--c, var(--accent)); border-radius: 999px; padding: 3px 14px; }
+  .panel h2 { margin: 10px 0 8px; font-size: 27px; line-height: 1.3; }
+  .route { font-size: 18px; color: var(--muted); margin-bottom: 10px; }
+  .route b { color: var(--ink); }
+  .explain { font-size: 20px; margin: 0; }
+  .analogy { margin-top: 14px; padding: 12px 16px; background: #FFF7E6; border-left: 5px solid #F0A93B; border-radius: 8px; font-size: 18px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .panel-head h3 { margin: 0; font-size: 20px; }
+  .fmt { font-size: 15px; color: var(--muted); background: var(--soft); border-radius: 6px; padding: 2px 10px; }
+  .copy { font: inherit; font-size: 15px; cursor: pointer; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 4px 12px; color: var(--muted); }
+  .copy:hover { color: var(--accent); border-color: var(--accent); }
+  pre.code {
+    margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; font-family: Consolas, "Cascadia Mono", "Courier New", "Microsoft JhengHei", monospace;
+    font-size: 17px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--ink);
+  }
+  .k { color: #2563D9; } .s { color: #B4441C; } .num { color: #0E8F80; } .b { color: #6D3FD0; } .hl { background: #FFF0A8; border-radius: 3px; }
+
+  /* Overview (step 0) */
+  .intro { font-size: 20px; margin: 0 0 8px; }
+  .intro-list { margin: 8px 0 0; padding-left: 1.3em; font-size: 19px; }
+  .intro-list li { margin: 4px 0; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); background: var(--ink); color: #fff; padding: 10px 20px; border-radius: 999px; font-size: 16px; transition: transform .25s; pointer-events: none; }
+  .toast.show { transform: translate(-50%, 0); }
+
+  @media (max-width: 820px) {
+    html, body { font-size: 16px; }
+    .wrap { padding: 20px 16px 40px; }
+    h1 { font-size: 26px; }
+    .detail { grid-template-columns: 1fr; }
+    .actor .ico { width: 56px; height: 56px; font-size: 32px; }
+    .actor .name { font-size: 16px; }
+    .actor .role { font-size: 12px; }
+    .msg .label { font-size: 13px; white-space: normal; width: max-content; max-width: 46vw; text-align: center; }
+    .msg.on .label { font-size: 14px; }
+    .msg .label .n { width: 22px; height: 22px; font-size: 12px; flex: none; }
+    .panel h2 { font-size: 22px; }
+    .explain { font-size: 17px; }
+    pre.code { font-size: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .msg.on .packet { animation: none; left: 50%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MCP 怎麼幫 AI 查天氣？</h1>
+    <p class="sub">按「下一步」一步一步看資料怎麼流動。也可以直接點圖上的箭頭或步驟編號，鍵盤 <kbd>←</kbd> <kbd>→</kbd> 也能切換。</p>
+  </header>
+
+  <div class="controls">
+    <button class="btn" id="prev">◀ 上一步</button>
+    <div class="dots" id="dots"></div>
+    <button class="btn primary" id="next">下一步 ▶</button>
+    <span class="spacer"></span>
+    <button class="btn" id="play">▶ 自動播放</button>
+  </div>
+
+  <section class="stage" aria-label="MCP 流程圖">
+    <div class="actors" id="actors"></div>
+    <div class="lanes" id="lanes"></div>
+  </section>
+
+  <section class="detail">
+    <div class="panel" id="explainPanel"></div>
+    <div class="panel" id="codePanel"></div>
+  </section>
+</div>
+<div class="toast" id="toast">已複製</div>
+
+<script>
+const ACTORS = [
+  { id: "user",   ico: "👤", name: "使用者",          role: "提出問題的人",             c: "var(--user)" },
+  { id: "client", ico: "🤖", name: "AI 助理",         role: "LLM＋MCP Client",          c: "var(--client)" },
+  { id: "server", ico: "🔌", name: "天氣 MCP Server", role: "把工具包成標準介面",       c: "var(--server)" },
+  { id: "api",    ico: "☁️", name: "天氣 API",        role: "真正有天氣資料的服務",     c: "var(--api)" },
+];
+const IDX = Object.fromEntries(ACTORS.map((a, i) => [a.id, i]));
+
+const STEPS = [
+  { from: "user", to: "client", label: "「台北今天天氣如何？」",
+    title: "使用者提問",
+    explain: "使用者用一般的中文問 AI 助理。AI 本身不知道「今天」的天氣，它的知識停在訓練的時候。",
+    analogy: "就像你問一位很博學的朋友，但他手邊沒有手機，沒辦法查即時資訊。",
+    fmt: "自然語言", code: "台北今天天氣如何？" },
+  { from: "client", to: "server", label: "tools/call：get_weather",
+    title: "AI 決定使用工具",
+    explain: "AI 發現需要即時資料，於是用 MCP 規定的格式（JSON-RPC）呼叫天氣伺服器提供的工具 get_weather，並帶上參數「Taipei」。",
+    analogy: "MCP 就像 USB 插座：不管是哪一家的工具，只要符合規格，AI 都能用同一種方式呼叫。",
+    fmt: "JSON-RPC 請求",
+    code: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_weather","arguments":{"city":"Taipei","unit":"celsius"}}}',
+    hl: ["\"tools/call\"", "\"get_weather\"", "\"Taipei\""] },
+  { from: "server", to: "api", label: "GET /weather?city=Taipei",
+    title: "伺服器去查真正的資料",
+    explain: "MCP Server 收到請求後，轉成天氣服務看得懂的一般網路請求（HTTP），去外部 API 取資料。",
+    analogy: "MCP Server 像翻譯兼跑腿：把 AI 的標準請求，翻成各家服務自己的語言。",
+    fmt: "HTTP 請求",
+    code: "GET /v1/weather?city=Taipei&unit=celsius HTTP/1.1\nHost: api.weather.service\nAccept: application/json",
+    hl: ["city=Taipei"] },
+  { from: "api", to: "server", label: "回傳：24°C、多雲、降雨 40%",
+    title: "天氣 API 回傳資料",
+    explain: "天氣服務把查到的原始資料（JSON）送回 MCP Server。這種格式每一家都不一樣，所以需要 Server 來整理。",
+    analogy: "跑腿的人拿到一張寫滿數字的單子，接下來要整理成老闆看得懂的樣子。",
+    fmt: "HTTP 回應（JSON）",
+    code: '{"city":"Taipei","temp_c":24,"condition":"多雲短暫雨","rain_prob":0.4}',
+    hl: ["24", "\"多雲短暫雨\"", "0.4"] },
+  { from: "server", to: "client", label: "tools/call 結果",
+    title: "伺服器用標準格式回覆 AI",
+    explain: "MCP Server 把結果包成 MCP 規定的回應格式送回 AI 助理，id 和請求時相同（都是 1），AI 就知道這是哪一次呼叫的答案。",
+    analogy: "不管背後接的是哪家天氣服務，AI 收到的格式永遠一樣，換供應商也不用改 AI。",
+    fmt: "JSON-RPC 回應",
+    code: '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"台北市目前天氣：多雲短暫雨，氣溫 24°C，降雨機率 40%。"}],"isError":false}}',
+    hl: ["\"id\"", "\"台北市目前天氣：多雲短暫雨，氣溫 24°C，降雨機率 40%。\""] },
+  { from: "client", to: "user", label: "「出門記得帶傘！」",
+    title: "AI 整理成口語回答",
+    explain: "AI 把工具給的資料，加上自己的理解，寫成自然、貼心的回答給使用者。",
+    analogy: "博學的朋友拿到即時資料後，不只報數字，還會提醒你帶傘。",
+    fmt: "自然語言",
+    code: "台北今天多雲、可能會下短暫的雨，氣溫約 24°C，降雨機率 40%，出門記得帶傘喔！" },
+];
+
+const $ = id => document.getElementById(id);
+let cur = 0;          // 0 = 總覽, 1..N = 步驟
+let timer = null;
+
+// ---------- build static parts ----------
+$("actors").innerHTML = ACTORS.map(a =>
+  `<div class="actor" tabindex="0" role="button" data-id="${a.id}" style="--c:${a.c}">
+     <div class="ico" aria-hidden="true">${a.ico}</div><div class="name">${a.name}</div><div class="role">${a.role}</div>
+   </div>`).join("");
+
+const colX = i => (i + 0.5) * 25;  // % center of each column
+$("lanes").innerHTML =
+  ACTORS.map((a, i) => `<div class="lifeline" style="left:${colX(i)}%"></div>`).join("") +
+  STEPS.map((s, k) => {
+    const a = IDX[s.from], b = IDX[s.to], l = Math.min(a, b), r = Math.max(a, b);
+    const c = ACTORS[a].c, pad = 2.2;
+    return `<div class="msg ${b > a ? "right" : "left"}" data-step="${k + 1}" style="--c:${c}">
+      <div class="label" style="left:${(colX(l) + colX(r)) / 2}%"><span class="n">${k + 1}</span><span>${s.label}</span></div>
+      <div class="arrow" style="left:${colX(l) + pad}%;width:${colX(r) - colX(l) - 2 * pad}%"><span class="packet"></span></div>
+    </div>`;
+  }).join("");
+
+$("dots").innerHTML = `<button class="dot" data-step="0" title="總覽" aria-label="總覽">總</button>` +
+  STEPS.map((s, k) => `<button class="dot" data-step="${k + 1}" title="${s.title}" aria-label="步驟 ${k + 1}：${s.title}">${k + 1}</button>`).join("");
+
+// ---------- helpers ----------
+const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function pretty(raw) {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch (e) { return raw; }
+}
+function colorize(text, hl = []) {
+  let h = esc(text);
+  if (/^\s*[{\[]/.test(text)) {
+    h = h.replace(/("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g, (m, str, colon, bool, num) => {
+      if (str) return colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`;
+      if (bool) return `<span class="b">${bool}</span>`;
+      return `<span class="num">${num}</span>`;
+    });
+  }
+  hl.forEach(t => {
+    const e = esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    h = h.replace(new RegExp(`(<span class="[a-z]+">)?${e}(</span>)?`), m => `<mark class="hl">${m}</mark>`);
+  });
+  return h;
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 1600);
+}
+
+// ---------- render ----------
+function render() {
+  document.querySelectorAll(".dot").forEach(d => {
+    const n = +d.dataset.step;
+    d.classList.toggle("on", n === cur);
+    d.classList.toggle("done", n > 0 && n < cur);
+  });
+  document.querySelectorAll(".msg").forEach(m => {
+    const n = +m.dataset.step;
+    m.classList.toggle("on", cur === 0 ? false : n === cur);
+    m.classList.toggle("done", cur === 0 || n < cur);
+    m.classList.toggle("future", cur !== 0 && n > cur);
+  });
+  const s = STEPS[cur - 1];
+  document.querySelectorAll(".actor").forEach(a => {
+    a.classList.toggle("on", !!s && (a.dataset.id === s.from || a.dataset.id === s.to));
+  });
+  $("prev").disabled = cur === 0;
+  $("next").disabled = cur === STEPS.length;
+  $("next").textContent = cur === 0 ? "開始 ▶" : "下一步 ▶";
+
+  if (!s) {
+    $("explainPanel").style.removeProperty("--c");
+    $("explainPanel").innerHTML = `
+      <span class="step-tag">總覽</span>
+      <h2>MCP：AI 連接工具的統一插座</h2>
+      <p class="intro">MCP（Model Context Protocol）規定 AI 和外部工具「怎麼對話」。只要工具做成 MCP Server，任何支援 MCP 的 AI 都能直接使用。</p>
+      <ul class="intro-list">
+        <li><b>👤 使用者</b>：用中文提問</li>
+        <li><b>🤖 AI 助理</b>：判斷要不要用工具</li>
+        <li><b>🔌 MCP Server</b>：提供工具、負責轉接</li>
+        <li><b>☁️ 天氣 API</b>：真正的資料來源</li>
+      </ul>`;
+    $("codePanel").innerHTML = `
+      <div class="panel-head"><h3>這個例子會看到</h3></div>
+      <ol class="intro-list">${STEPS.map(x => `<li>${x.title}</li>`).join("")}</ol>
+      <p class="analogy">重點：AI 只需要學會「MCP 這一種格式」，就能使用各式各樣的工具。</p>`;
+    return;
+  }
+  const A = ACTORS[IDX[s.from]], B = ACTORS[IDX[s.to]];
+  $("explainPanel").style.setProperty("--c", A.c);
+  $("explainPanel").innerHTML = `
+    <span class="step-tag">步驟 ${cur} / ${STEPS.length}</span>
+    <h2>${s.title}</h2>
+    <div class="route"><b>${A.ico} ${A.name}</b>　➜　<b>${B.ico} ${B.name}</b></div>
+    <p class="explain">${s.explain}</p>
+    <div class="analogy">💡 ${s.analogy}</div>`;
+  $("codePanel").innerHTML = `
+    <div class="panel-head"><h3>實際傳送的內容 <span class="fmt">${s.fmt}</span></h3><button class="copy" id="copy">複製</button></div>
+    <pre class="code">${colorize(pretty(s.code), s.hl)}</pre>`;
+  $("copy").onclick = () => {
+    const raw = pretty(s.code);
+    (navigator.clipboard ? navigator.clipboard.writeText(raw) : Promise.reject())
+      .then(() => toast("已複製"), () => toast("瀏覽器不允許複製"));
+  };
+}
+
+function go(n, keepPlaying) {
+  if (!keepPlaying) stop();
+  cur = Math.max(0, Math.min(STEPS.length, n));
+  render();
+}
+function stop() {
+  if (timer) { clearInterval(timer); timer = null; $("play").textContent = "▶ 自動播放"; }
+}
+
+// ---------- events ----------
+$("prev").onclick = () => go(cur - 1);
+$("next").onclick = () => go(cur + 1);
+$("dots").onclick = e => { const d = e.target.closest(".dot"); if (d) go(+d.dataset.step); };
+$("lanes").onclick = e => { const m = e.target.closest(".msg"); if (m) go(+m.dataset.step); };
+function actorGo(el) {
+  const id = el.dataset.id;
+  const hits = STEPS.map((s, k) => (s.from === id || s.to === id) ? k + 1 : 0).filter(Boolean);
+  go(hits.find(n => n > cur) || hits[0]);
+}
+document.querySelectorAll(".actor").forEach(a => {
+  a.onclick = () => actorGo(a);
+  a.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); actorGo(a); } };
+});
+$("play").onclick = () => {
+  if (timer) return stop();
+  $("play").textContent = "⏸ 暫停";
+  go(cur >= STEPS.length || cur === 0 ? 1 : cur, true);
+  timer = setInterval(() => {
+    if (cur >= STEPS.length) { stop(); return; }
+    go(cur + 1, true);
+  }, 3500);
+};
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); go(cur + 1); }
+  if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); go(cur - 1); }
+  if (e.key === "Home") go(0);
+  if (e.key === "End") go(STEPS.length);
+});
+
+// 網址加 #3 可直接開在第 3 步
+cur = Math.max(0, Math.min(STEPS.length, parseInt(location.hash.slice(1)) || 0));
+render();
+</script>
+</body>
+</html>
