@@ -175,10 +175,14 @@
   .actor .name, .actor .role { white-space: nowrap; }
   .intro-list.two-col { columns: 2; column-gap: 28px; }
   @media (min-width: 1101px) and (min-height: 600px) {
-    /* 寬螢幕：整頁鎖在一個畫面內，右側程式碼框填滿剩餘高度 */
-    .wrap { height: 100vh; }
-    .main { flex: 1; min-height: 0; }
-    .detail { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+    /* 寬螢幕：最高一個畫面；左右兩欄等高、下緣對齊 */
+    .wrap { max-height: 100vh; }
+    .main { flex: 0 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+    .left { min-height: 0; }
+    .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .lanes { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; }
+    .left .analogy { flex: none; }
+    .detail { min-height: 0; display: flex; flex-direction: column; }
     #explainPanel { flex: none; }
     #codePanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     #codePanel pre.code { flex: 1; min-height: 0; overflow: auto; }
