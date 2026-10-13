@@ -141,6 +141,52 @@
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); background: var(--ink); color: #fff; padding: 10px 20px; border-radius: 999px; font-size: 16px; transition: transform .25s; pointer-events: none; }
   .toast.show { transform: translate(-50%, 0); }
 
+  /* ===== 精簡版面：字級不變，縮小留白與圖形，一個畫面看完 ===== */
+  .wrap { max-width: 1480px; padding: 14px 20px 20px; gap: 12px; }
+  .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; }
+  .sub { margin-top: 2px; }
+  .btn { padding: 6px 15px; }
+  .dot { width: 36px; height: 36px; }
+  .controls { gap: 8px; }
+  .main { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .stage { padding: 12px 10px 8px; border-radius: 14px; }
+  .actor { padding: 4px 4px 6px; gap: 2px; }
+  .actor .ico { width: 58px; height: 58px; font-size: 32px; }
+  .actor.on .ico { box-shadow: 0 0 0 3px var(--c), 0 0 12px var(--c); }
+  .lanes { margin-top: 2px; }
+  .msg { height: 47px; }
+  .msg .label { top: 0; }
+  .msg .label .n { width: 25px; height: 25px; }
+  .msg .arrow { top: 32px; }
+  .detail { grid-template-columns: 1fr; gap: 12px; }
+  .panel { padding: 14px 18px; border-radius: 14px; }
+  .panel h2 { margin: 6px 0 4px; }
+  .route { margin-bottom: 6px; }
+  .analogy { margin-top: 10px; padding: 8px 14px; }
+  .panel-head { margin-bottom: 8px; }
+  pre.code { padding: 10px 14px; line-height: 1.45; }
+  .intro { margin: 0 0 4px; }
+  .intro-list { margin-top: 4px; }
+  .intro-list li { margin: 2px 0; }
+  pre.code { line-height: 1.38; }
+  .left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .left .analogy { margin: 0; font-size: 19px; padding: 12px 18px; border-radius: 12px; }
+  .actor .ico { width: 48px; height: 48px; font-size: 27px; }
+  .actor .name, .actor .role { white-space: nowrap; }
+  .intro-list.two-col { columns: 2; column-gap: 28px; }
+  @media (min-width: 1101px) and (min-height: 600px) {
+    /* 寬螢幕：整頁鎖在一個畫面內，右側程式碼框填滿剩餘高度 */
+    .wrap { height: 100vh; }
+    .main { flex: 1; min-height: 0; }
+    .detail { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+    #explainPanel { flex: none; }
+    #codePanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #codePanel pre.code { flex: 1; min-height: 0; overflow: auto; }
+  }
+  @media (max-width: 1100px) {
+    .main { grid-template-columns: 1fr; }
+  }
+
   @media (max-width: 820px) {
     html, body { font-size: 16px; }
     .wrap { padding: 20px 16px 40px; }
@@ -163,37 +209,42 @@
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>MCP 怎麼幫 AI 查天氣？</h1>
-    <p class="sub">按「下一步」一步一步看資料怎麼流動。也可以直接點圖上的箭頭或步驟編號，鍵盤 <kbd>←</kbd> <kbd>→</kbd> 也能切換。</p>
-  </header>
-
-  <div class="controls">
-    <button class="btn" id="prev">◀ 上一步</button>
-    <div class="dots" id="dots"></div>
-    <button class="btn primary" id="next">下一步 ▶</button>
-    <span class="spacer"></span>
-    <button class="btn" id="play">▶ 自動播放</button>
+  <div class="top">
+    <header>
+      <h1>MCP 怎麼幫 AI 查天氣？</h1>
+      <p class="sub">按「下一步」看資料怎麼流動，也可點箭頭或用鍵盤 <kbd>←</kbd> <kbd>→</kbd> 切換。</p>
+    </header>
+    <div class="controls">
+      <button class="btn" id="prev">◀ 上一步</button>
+      <div class="dots" id="dots"></div>
+      <button class="btn primary" id="next">下一步 ▶</button>
+      <button class="btn" id="play">▶ 自動播放</button>
+    </div>
   </div>
 
-  <section class="stage" aria-label="MCP 流程圖">
-    <div class="actors" id="actors"></div>
-    <div class="lanes" id="lanes"></div>
-  </section>
+  <div class="main">
+    <div class="left">
+      <section class="stage" aria-label="MCP 流程圖">
+        <div class="actors" id="actors"></div>
+        <div class="lanes" id="lanes"></div>
+      </section>
+      <div class="analogy" id="analogy"></div>
+    </div>
 
-  <section class="detail">
-    <div class="panel" id="explainPanel"></div>
-    <div class="panel" id="codePanel"></div>
-  </section>
+    <section class="detail">
+      <div class="panel" id="explainPanel"></div>
+      <div class="panel" id="codePanel"></div>
+    </section>
+  </div>
 </div>
 <div class="toast" id="toast">已複製</div>
 
 <script>
 const ACTORS = [
-  { id: "user",   ico: "👤", name: "使用者",          role: "提出問題的人",             c: "var(--user)" },
+  { id: "user",   ico: "👤", name: "使用者",          role: "提問的人",       c: "var(--user)" },
   { id: "client", ico: "🤖", name: "AI 助理",         role: "LLM＋MCP Client",          c: "var(--client)" },
-  { id: "server", ico: "🔌", name: "天氣 MCP Server", role: "把工具包成標準介面",       c: "var(--server)" },
-  { id: "api",    ico: "☁️", name: "天氣 API",        role: "真正有天氣資料的服務",     c: "var(--api)" },
+  { id: "server", ico: "🔌", name: "MCP Server",      role: "天氣工具伺服器", c: "var(--server)" },
+  { id: "api",    ico: "☁️", name: "天氣 API",        role: "天氣資料來源",   c: "var(--api)" },
 ];
 const IDX = Object.fromEntries(ACTORS.map((a, i) => [a.id, i]));
 
@@ -266,8 +317,18 @@ $("dots").innerHTML = `<button class="dot" data-step="0" title="總覽" aria-lab
 
 // ---------- helpers ----------
 const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// 精簡縮排：只有一個物件的陣列寫成 [{ ... }]，少佔幾行
+function fmt(v, ind) {
+  const nx = ind + "  ";
+  if (Array.isArray(v)) {
+    if (v.length === 1 && v[0] && typeof v[0] === "object") return "[" + fmt(v[0], ind) + "]";
+    return "[\n" + v.map(x => nx + fmt(x, nx)).join(",\n") + "\n" + ind + "]";
+  }
+  if (v && typeof v === "object") return "{\n" + Object.entries(v).map(([k, x]) => nx + JSON.stringify(k) + ": " + fmt(x, nx)).join(",\n") + "\n" + ind + "}";
+  return JSON.stringify(v);
+}
 function pretty(raw) {
-  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch (e) { return raw; }
+  try { return fmt(JSON.parse(raw), ""); } catch (e) { return raw; }
 }
 function colorize(text, hl = []) {
   let h = esc(text);
@@ -322,10 +383,10 @@ function render() {
         <li><b>🔌 MCP Server</b>：提供工具、負責轉接</li>
         <li><b>☁️ 天氣 API</b>：真正的資料來源</li>
       </ul>`;
+    $("analogy").innerHTML = "💡 重點：AI 只需要學會「MCP 這一種格式」，就能使用各式各樣的工具。";
     $("codePanel").innerHTML = `
       <div class="panel-head"><h3>這個例子會看到</h3></div>
-      <ol class="intro-list">${STEPS.map(x => `<li>${x.title}</li>`).join("")}</ol>
-      <p class="analogy">重點：AI 只需要學會「MCP 這一種格式」，就能使用各式各樣的工具。</p>`;
+      <ol class="intro-list two-col">${STEPS.map(x => `<li>${x.title}</li>`).join("")}</ol>`;
     return;
   }
   const A = ACTORS[IDX[s.from]], B = ACTORS[IDX[s.to]];
@@ -334,8 +395,8 @@ function render() {
     <span class="step-tag">步驟 ${cur} / ${STEPS.length}</span>
     <h2>${s.title}</h2>
     <div class="route"><b>${A.ico} ${A.name}</b>　➜　<b>${B.ico} ${B.name}</b></div>
-    <p class="explain">${s.explain}</p>
-    <div class="analogy">💡 ${s.analogy}</div>`;
+    <p class="explain">${s.explain}</p>`;
+  $("analogy").innerHTML = "💡 " + s.analogy;
   $("codePanel").innerHTML = `
     <div class="panel-head"><h3>實際傳送的內容 <span class="fmt">${s.fmt}</span></h3><button class="copy" id="copy">複製</button></div>
     <pre class="code">${colorize(pretty(s.code), s.hl)}</pre>`;
