@@ -193,6 +193,28 @@
     #codePanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     #codePanel pre.code { flex: 1; min-height: 0; overflow: auto; }
   }
+  /* 模式切換：範例 / 真實 API */
+  .modebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .seg { display: inline-flex; background: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .seg button { font: inherit; font-size: 16px; font-weight: 700; border: 0; background: transparent; border-radius: 999px; padding: 4px 16px; cursor: pointer; color: var(--muted); }
+  .seg button.on { background: var(--card); color: var(--accent); box-shadow: 0 1px 4px rgba(26,31,54,.18); }
+  .realbar { display: none; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 17px; }
+  .real .realbar { display: flex; margin-top: 4px; }
+  .real .sub { display: none; }
+  .realbar select, .realbar input { font: inherit; font-size: 17px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+  .realbar input { width: 19em; margin-top: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 15px; }
+  .modebar h1 { white-space: nowrap; }
+  .keybox { position: relative; }
+  .keybox summary { list-style: none; cursor: pointer; font-size: 16px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--card); }
+  .keybox summary::-webkit-details-marker { display: none; }
+  .keybox[open] summary { color: var(--accent); border-color: var(--accent); }
+  .keypop { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 20px rgba(26,31,54,.15); font-size: 16px; white-space: nowrap; }
+  .keypop small { display: block; margin-top: 6px; color: var(--muted); }
+  .keypop a { color: var(--accent); }
+  .realbar .btn { padding: 4px 14px; font-size: 17px; }
+  .status { color: var(--muted); font-size: 16px; }
+  .status.ok { color: var(--api); font-weight: 700; }
+  .status.err { color: #C0392B; font-weight: 700; }
   @media (max-width: 1100px) {
     .main { grid-template-columns: 1fr; }
   }
@@ -221,8 +243,26 @@
 <div class="wrap">
   <div class="top">
     <header>
-      <h1>MCP 怎麼幫 AI 查天氣？</h1>
+      <div class="modebar">
+        <h1>MCP 怎麼幫 AI 查天氣？</h1>
+        <div class="seg" role="tablist" aria-label="資料來源">
+          <button id="modeDemo" role="tab">📘 範例</button>
+          <button id="modeReal" role="tab">🌐 真實資料</button>
+        </div>
+      </div>
       <p class="sub">按「下一步」看資料怎麼流動，也可點箭頭或用鍵盤 <kbd>←</kbd> <kbd>→</kbd> 切換。</p>
+      <div class="realbar">
+        <select id="city" aria-label="縣市"></select>
+        <button class="btn" id="fetchBtn">🔍 查詢</button>
+        <details class="keybox">
+          <summary>🔑 授權碼</summary>
+          <div class="keypop">
+            <label>中央氣象署授權碼<br><input id="apikey" type="password" autocomplete="off" spellcheck="false" placeholder="CWA-XXXXXXXX-…"></label>
+            <small>到 <a href="https://opendata.cwa.gov.tw/index" target="_blank" rel="noopener">氣象資料開放平臺</a> 免費註冊即可取得</small>
+          </div>
+        </details>
+        <span class="status" id="status"></span>
+      </div>
     </header>
     <div class="controls">
       <button class="btn" id="prev">◀ 上一步</button>
@@ -250,7 +290,7 @@
 <div class="toast" id="toast">已複製</div>
 
 <script>
-const ACTORS = [
+let ACTORS = [
   { id: "user",   ico: "👤", name: "使用者",          role: "提問的人",       c: "var(--user)" },
   { id: "client", ico: "🤖", name: "AI 助理",         role: "LLM＋MCP Client",          c: "var(--client)" },
   { id: "server", ico: "🔌", name: "MCP Server",      role: "天氣工具伺服器", c: "var(--server)" },
@@ -258,7 +298,7 @@ const ACTORS = [
 ];
 const IDX = Object.fromEntries(ACTORS.map((a, i) => [a.id, i]));
 
-const STEPS = [
+const DEMO_STEPS = [
   { from: "user", to: "client", label: "「台北天氣如何？」",
     title: "使用者提問",
     explain: "使用者用一般的中文問 AI 助理。AI 本身不知道「今天」的天氣，它的知識停在訓練的時候。",
@@ -300,30 +340,156 @@ const STEPS = [
     code: "台北今天多雲、可能會下短暫的雨，氣溫約 24°C，降雨機率 40%，出門記得帶傘喔！" },
 ];
 
+// ---------- 真實 API：中央氣象署「一般天氣預報－今明 36 小時天氣預報」F-C0032-001 ----------
+const CWA_HOST = "opendata.cwa.gov.tw";
+const CWA_PATH = "/api/v1/rest/datastore/F-C0032-001";
+const DEFAULT_KEY = "";  // 授權碼（公開部署時請留空，改由使用者輸入）
+const CITIES = ["臺北市", "新北市", "基隆市", "桃園市", "新竹市", "新竹縣", "苗栗縣", "臺中市", "彰化縣", "南投縣", "雲林縣",
+  "嘉義市", "嘉義縣", "臺南市", "高雄市", "屏東縣", "宜蘭縣", "花蓮縣", "臺東縣", "澎湖縣", "金門縣", "連江縣"];
+
+let mode = "demo";    // "demo" = 範例資料, "real" = 真實 API
+let real = { status: "idle" };   // idle / loading / ok / error
+let reqSeq = 0;
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+
+const maskKey = k => k.length > 12 ? k.slice(0, 8) + "****" + k.slice(-4) : (k ? "****" : "（請輸入授權碼）");
+const hhmm = t => t ? t.slice(5, 16).replace("-", "/") : "";   // "2026-10-14 12:00:00" → "10/14 12:00"
+const range = (a, b) => a && b && a.slice(0, 10) === b.slice(0, 10) ? hhmm(a) + "–" + b.slice(11, 16) : hhmm(a) + "–" + hhmm(b);
+// 一行寫完的 JSON（加空白比較好讀）
+const inline = v => JSON.stringify(v).replace(/":/g, '": ').replace(/,"/g, ', "');
+
+function summarize(j) {
+  const loc = j.records.location[0];
+  const el = n => (loc.weatherElement.find(e => e.elementName === n) || { time: [{}] }).time[0];
+  const p = n => ((el(n) || {}).parameter || {}).parameterName;
+  const t0 = el("Wx") || {};
+  return { city: loc.locationName, wx: p("Wx"), pop: +p("PoP"), minT: p("MinT"), maxT: p("MaxT"), ci: p("CI"),
+           start: t0.startTime, end: t0.endTime, slots: (t0 && loc.weatherElement[0].time.length) || 0 };
+}
+
+function realSteps() {
+  const city = $("city").value;
+  const key = $("apikey").value.trim();
+  const shown = `Authorization=${maskKey(key)}&locationName=${city}`;
+  const ok = real.status === "ok", w = ok ? real.sum : null;
+  const wait = real.status === "loading" ? "查詢中…" :
+               real.status === "error" ? "查詢失敗：" + real.err : "請按上方「🔍 查詢」取得資料";
+  const result = ok ? `${w.city} ${range(w.start, w.end)}：${w.wx}，氣溫 ${w.minT}–${w.maxT}°C，降雨機率 ${w.pop}%，${w.ci}。` : wait;
+  const umbrella = !ok ? "" : w.pop >= 50 ? "出門記得帶傘喔！" : w.pop >= 30 ? "有機會下雨，建議帶把折傘備用。" : "降雨機率不高，應該不用帶傘。";
+  const hot = ok && +w.maxT >= 30 ? "白天偏熱，記得多補充水分。" : "";
+
+  let resp = "# " + wait;
+  if (ok) {
+    // 第 1 個天氣項目完整展開，其餘只列 parameter（時間欄位相同，略）
+    const loc = real.data.records.location[0], els = loc.weatherElement, ind = "        ";
+    const first = ind + fmt({ elementName: els[0].elementName, time: [els[0].time[0]] }, ind);
+    const rest = els.slice(1).map(e => `${ind}{"elementName": ${JSON.stringify(e.elementName)}, "time": [{ …, "parameter": ${inline(e.time[0].parameter)} }]}`);
+    resp = `# 已精簡：每項只列第 1 個時段（原始共 ${w.slots} 個），第 2 項起省略時間欄位\n` +
+      `{\n  "success": ${JSON.stringify(real.data.success)},\n  "records": {\n    "datasetDescription": ${JSON.stringify(real.data.records.datasetDescription)},\n` +
+      `    "location": [{\n      "locationName": ${JSON.stringify(loc.locationName)},\n      "weatherElement": [\n` +
+      [first, ...rest].join(",\n") + `\n      ]\n    }]\n  }\n}`;
+  }
+
+  return [
+    { ...DEMO_STEPS[0], label: `「${city.slice(0, 2)}天氣如何？」`, code: `${city}今天天氣如何？` },
+    { ...DEMO_STEPS[1],
+      explain: `AI 發現需要即時資料，於是用 MCP 規定的格式（JSON-RPC）呼叫天氣伺服器提供的工具 get_weather，並帶上參數「${city}」。`,
+      code: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_weather", arguments: { city } } }),
+      hl: ["\"tools/call\"", "\"get_weather\"", `"${city}"`] },
+    { ...DEMO_STEPS[2], label: "GET F-C0032-001",
+      title: "伺服器呼叫氣象署 API",
+      explain: `MCP Server 把「${city}」填進中央氣象署的 API 網址送出 HTTP GET。F-C0032-001 是「今明 36 小時天氣預報」資料集，Authorization 是會員授權碼（畫面上已遮住中間）。`,
+      code: `# 寫法一：完整 API 網址\nGET https://${CWA_HOST}${CWA_PATH}?${shown}\n\n# 寫法二：實際送出的 HTTP 請求（網址拆成路徑＋Host）\nGET ${CWA_PATH}?${shown} HTTP/1.1\nHost: ${CWA_HOST}\nAccept: application/json`,
+      hl: [`https://${CWA_HOST}${CWA_PATH}`, `locationName=${city}`] },
+    { ...DEMO_STEPS[3], label: ok ? `${w.minT}–${w.maxT}°C、雨 ${w.pop}%` : wait.slice(0, 12),
+      title: "氣象署回傳真實資料",
+      explain: "氣象署把預報送回 MCP Server。Wx＝天氣現象、PoP＝降雨機率、MinT／MaxT＝最低／最高溫、CI＝舒適度。原始格式很長，AI 不需要全部，所以要由 Server 整理。<br><small>資料來源：<a href=\"https://opendata.cwa.gov.tw/index\" target=\"_blank\" rel=\"noopener\">中央氣象署 氣象資料開放平臺</a></small>",
+      fmt: "HTTP 回應（JSON，真實資料）", code: resp,
+      hl: ok ? [`"${w.wx}"`, `"${w.pop}"`, `"${w.minT}"`, `"${w.maxT}"`] : [] },
+    { ...DEMO_STEPS[4],
+      code: JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: result }], isError: !ok } }),
+      hl: ["\"id\"", JSON.stringify(result)] },
+    { ...DEMO_STEPS[5], label: !ok ? "「…」" : w.pop >= 30 ? "「記得帶傘！」" : "「不用帶傘」",
+      explain: "AI 把工具給的資料，加上自己的理解，寫成自然的回答。（真實系統由 LLM 生成這段話；本頁用簡單規則示意。）",
+      code: ok ? `${w.city} ${range(w.start, w.end)} ${w.wx}，氣溫大約 ${w.minT}–${w.maxT}°C，降雨機率 ${w.pop}%。${umbrella}${hot}` : wait },
+  ];
+}
+
+async function fetchReal() {
+  const key = $("apikey").value.trim(), city = $("city").value, my = ++reqSeq;
+  store.set("cwaKey", key); store.set("cwaCity", city);
+  if (!key) { real = { status: "error", err: "請先輸入授權碼" }; return refresh(); }
+  real = { status: "loading" }; refresh();
+  try {
+    const url = `https://${CWA_HOST}${CWA_PATH}?Authorization=${encodeURIComponent(key)}&locationName=${encodeURIComponent(city)}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status === 401 ? "授權碼錯誤" : "HTTP " + r.status);
+    const j = await r.json();
+    if (j.success !== "true" || !j.records || !j.records.location || !j.records.location.length) throw new Error("查無資料");
+    if (my !== reqSeq) return;
+    real = { status: "ok", data: j, sum: summarize(j) };
+  } catch (e) {
+    if (my !== reqSeq) return;
+    real = { status: "error", err: e.message === "Failed to fetch" ? "連不上氣象署（請檢查網路）" : e.message };
+  }
+  refresh();
+}
+
+function setMode(m) {
+  mode = m; store.set("mcpMode", m);
+  document.body.classList.toggle("real", m === "real");
+  $("modeDemo").classList.toggle("on", m === "demo");
+  $("modeReal").classList.toggle("on", m === "real");
+  $("modeDemo").setAttribute("aria-selected", m === "demo");
+  $("modeReal").setAttribute("aria-selected", m === "real");
+  ACTORS[3].role = m === "real" ? "中央氣象署" : "天氣資料來源";
+  if (m === "real" && real.status === "idle") fetchReal(); else refresh();
+}
+
+function refresh() {
+  STEPS = mode === "real" ? realSteps() : DEMO_STEPS;
+  const st = $("status");
+  st.className = "status" + (real.status === "ok" ? " ok" : real.status === "error" ? " err" : "");
+  st.textContent = real.status === "ok" ? `✅ 已取得 ${real.sum.city} ${range(real.sum.start, real.sum.end)} 預報` :
+                   real.status === "loading" ? "⏳ 查詢中…" : real.status === "error" ? "⚠️ " + real.err : "";
+  buildDiagram();
+  render();
+}
+
 const $ = id => document.getElementById(id);
+let STEPS = DEMO_STEPS;
 let cur = 0;          // 0 = 總覽, 1..N = 步驟
 let timer = null;
 
-// ---------- build static parts ----------
-$("actors").innerHTML = ACTORS.map((a, i) =>
-  `<div class="actor" tabindex="0" role="button" data-id="${a.id}" style="--c:${a.c};left:${8 + i * 28}%">
-     <div class="ico" aria-hidden="true">${a.ico}</div><div class="name">${a.name}</div><div class="role">${a.role}</div>
-   </div>`).join("");
-
+// ---------- build diagram ----------
 const colX = i => 8 + i * 28;  // % 每個角色（生命線）的中心位置，兩側留白較少
-$("lanes").innerHTML =
-  ACTORS.map((a, i) => `<div class="lifeline" style="left:${colX(i)}%"></div>`).join("") +
-  STEPS.map((s, k) => {
-    const a = IDX[s.from], b = IDX[s.to], l = Math.min(a, b), r = Math.max(a, b);
-    const c = ACTORS[a].c, pad = 2.2;
-    return `<div class="msg ${b > a ? "right" : "left"}" data-step="${k + 1}" style="--c:${c}">
-      <div class="label" style="left:${(colX(l) + colX(r)) / 2}%"><span class="n">${k + 1}</span><span>${s.label}</span></div>
-      <div class="arrow" style="left:${colX(l) + pad}%;width:${colX(r) - colX(l) - 2 * pad}%"><span class="packet"></span></div>
-    </div>`;
-  }).join("");
+function buildDiagram() {
+  $("actors").innerHTML = ACTORS.map((a, i) =>
+    `<div class="actor" tabindex="0" role="button" data-id="${a.id}" style="--c:${a.c};left:${colX(i)}%">
+       <div class="ico" aria-hidden="true">${a.ico}</div><div class="name">${a.name}</div><div class="role">${a.role}</div>
+     </div>`).join("");
+  document.querySelectorAll(".actor").forEach(a => {
+    a.onclick = () => actorGo(a);
+    a.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); actorGo(a); } };
+  });
 
-$("dots").innerHTML = `<button class="dot" data-step="0" title="總覽" aria-label="總覽">總</button>` +
-  STEPS.map((s, k) => `<button class="dot" data-step="${k + 1}" title="${s.title}" aria-label="步驟 ${k + 1}：${s.title}">${k + 1}</button>`).join("");
+  $("lanes").innerHTML =
+    ACTORS.map((a, i) => `<div class="lifeline" style="left:${colX(i)}%"></div>`).join("") +
+    STEPS.map((s, k) => {
+      const a = IDX[s.from], b = IDX[s.to], l = Math.min(a, b), r = Math.max(a, b);
+      const c = ACTORS[a].c, pad = 2.2;
+      return `<div class="msg ${b > a ? "right" : "left"}" data-step="${k + 1}" style="--c:${c}">
+        <div class="label" style="left:${(colX(l) + colX(r)) / 2}%" title="${esc(s.label)}"><span class="n">${k + 1}</span><span>${esc(s.label)}</span></div>
+        <div class="arrow" style="left:${colX(l) + pad}%;width:${colX(r) - colX(l) - 2 * pad}%"><span class="packet"></span></div>
+      </div>`;
+    }).join("");
+
+  $("dots").innerHTML = `<button class="dot" data-step="0" title="總覽" aria-label="總覽">總</button>` +
+    STEPS.map((s, k) => `<button class="dot" data-step="${k + 1}" title="${s.title}" aria-label="步驟 ${k + 1}：${s.title}">${k + 1}</button>`).join("");
+}
 
 // ---------- helpers ----------
 const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -342,14 +508,16 @@ function pretty(raw) {
 }
 function colorize(text, hl = []) {
   let h = esc(text);
-  h = h.replace(/^# .*$/gm, m => `<span class="cm">${m.slice(2)}</span>`);  // 註解行：灰色小標
-  if (/^\s*[{\[]/.test(text)) {
+  const cms = [];   // 註解行（# 開頭）先抽出來，避免被當成 JSON 上色
+  h = h.replace(/^# .*$/gm, m => { cms.push(m.slice(2)); return "§CM§"; });
+  if (/^\s*[{\[]/.test(text.replace(/^# .*\n?/gm, ""))) {
     h = h.replace(/("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g, (m, str, colon, bool, num) => {
       if (str) return colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`;
       if (bool) return `<span class="b">${bool}</span>`;
       return `<span class="num">${num}</span>`;
     });
   }
+  h = h.replace(/§CM§/g, () => `<span class="cm">${cms.shift()}</span>`);  // 註解行：灰色小標
   hl.forEach(t => {
     const e = esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     h = h.replace(new RegExp(`(<span class="[a-z]+">)?${e}(</span>)?`), m => `<mark class="hl">${m}</mark>`);
@@ -392,7 +560,7 @@ function render() {
         <li><b>👤 使用者</b>：用中文提問</li>
         <li><b>🤖 AI 助理</b>：判斷要不要用工具</li>
         <li><b>🔌 MCP Server</b>：提供工具、負責轉接</li>
-        <li><b>☁️ 天氣 API</b>：真正的資料來源</li>
+        <li><b>☁️ 天氣 API</b>：${mode === "real" ? "中央氣象署開放資料" : "真正的資料來源"}</li>
       </ul>`;
     $("analogy").innerHTML = "💡 重點：AI 只需要學會「MCP 這一種格式」，就能使用各式各樣的工具。";
     $("codePanel").innerHTML = `
@@ -403,7 +571,7 @@ function render() {
   const A = ACTORS[IDX[s.from]], B = ACTORS[IDX[s.to]];
   $("explainPanel").style.setProperty("--c", A.c);
   $("explainPanel").innerHTML = `
-    <span class="step-tag">步驟 ${cur} / ${STEPS.length}</span>
+    <span class="step-tag">步驟 ${cur} / ${STEPS.length}${mode === "real" ? "・真實資料" : "・範例資料"}</span>
     <h2>${s.title}</h2>
     <div class="route"><b>${A.ico} ${A.name}</b>　➜　<b>${B.ico} ${B.name}</b></div>
     <p class="explain">${s.explain}</p>`;
@@ -437,10 +605,6 @@ function actorGo(el) {
   const hits = STEPS.map((s, k) => (s.from === id || s.to === id) ? k + 1 : 0).filter(Boolean);
   go(hits.find(n => n > cur) || hits[0]);
 }
-document.querySelectorAll(".actor").forEach(a => {
-  a.onclick = () => actorGo(a);
-  a.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); actorGo(a); } };
-});
 $("play").onclick = () => {
   if (timer) return stop();
   $("play").textContent = "⏸ 暫停";
@@ -459,8 +623,17 @@ document.addEventListener("keydown", e => {
 });
 
 // 網址加 #3 可直接開在第 3 步
-cur = Math.max(0, Math.min(STEPS.length, parseInt(location.hash.slice(1)) || 0));
-render();
+window.addEventListener("hashchange", () => go(parseInt(location.hash.slice(1)) || 0));
+$("city").innerHTML = CITIES.map(c => `<option>${c}</option>`).join("");
+$("city").value = store.get("cwaCity") || "臺北市";
+$("apikey").value = store.get("cwaKey") || DEFAULT_KEY;
+$("modeDemo").onclick = () => setMode("demo");
+$("modeReal").onclick = () => setMode("real");
+$("fetchBtn").onclick = fetchReal;
+$("city").onchange = fetchReal;
+$("apikey").onkeydown = e => { if (e.key === "Enter") fetchReal(); };
+cur = Math.max(0, Math.min(6, parseInt(location.hash.slice(1)) || 0));
+setMode(/[?&]mode=real/.test(location.search) ? "real" : /[?&]mode=demo/.test(location.search) ? "demo" : (store.get("mcpMode") || "demo"));
 </script>
 </body>
 </html>
