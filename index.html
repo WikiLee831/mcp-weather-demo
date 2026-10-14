@@ -421,7 +421,7 @@ function realSteps() {
 async function fetchReal() {
   const key = $("apikey").value.trim(), city = $("city").value, my = ++reqSeq;
   store.set("cwaKey", key); store.set("cwaCity", city);
-  if (!key) { real = { status: "error", err: "請先輸入授權碼" }; return refresh(); }
+  if (!key) { real = { status: "error", err: "請先輸入授權碼" }; document.querySelector(".keybox").open = true; return refresh(); }
   real = { status: "loading" }; refresh();
   try {
     const url = `https://${CWA_HOST}${CWA_PATH}?Authorization=${encodeURIComponent(key)}&locationName=${encodeURIComponent(city)}`;
@@ -431,6 +431,7 @@ async function fetchReal() {
     if (j.success !== "true" || !j.records || !j.records.location || !j.records.location.length) throw new Error("查無資料");
     if (my !== reqSeq) return;
     real = { status: "ok", data: j, sum: summarize(j) };
+    document.querySelector(".keybox").open = false;
   } catch (e) {
     if (my !== reqSeq) return;
     real = { status: "error", err: e.message === "Failed to fetch" ? "連不上氣象署（請檢查網路）" : e.message };
