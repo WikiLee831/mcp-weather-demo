@@ -132,6 +132,7 @@
     font-size: 17px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--ink);
   }
   .k { color: #2563D9; } .s { color: #B4441C; } .num { color: #0E8F80; } .b { color: #6D3FD0; } .hl { background: #FFF0A8; border-radius: 3px; }
+  .cm { color: var(--muted); font-family: "Microsoft JhengHei", sans-serif; font-weight: 700; font-size: .9em; }
 
   /* Overview (step 0) */
   .intro { font-size: 20px; margin: 0 0 8px; }
@@ -275,7 +276,7 @@ const STEPS = [
     explain: "MCP Server 收到請求後，把參數 city=Taipei 填進天氣服務的 API 網址，用一般的 HTTP GET 去取資料。",
     analogy: "MCP Server 像翻譯兼跑腿：把 AI 的標準請求，翻成各家服務自己的語言。",
     fmt: "HTTP GET 請求",
-    code: "GET https://api.weather.service/v1/weather?city=Taipei&unit=celsius\nAccept: application/json",
+    code: "# 寫法一：完整 API 網址\nGET https://api.weather.service/v1/weather?city=Taipei&unit=celsius\n\n# 寫法二：實際送出的 HTTP 請求（網址拆成路徑＋Host）\nGET /v1/weather?city=Taipei&unit=celsius HTTP/1.1\nHost: api.weather.service\nAccept: application/json",
     hl: ["https://api.weather.service/v1/weather", "city=Taipei"] },
   { from: "api", to: "server", label: "24°C、多雲、雨 40%",
     title: "天氣 API 回傳資料",
@@ -341,6 +342,7 @@ function pretty(raw) {
 }
 function colorize(text, hl = []) {
   let h = esc(text);
+  h = h.replace(/^# .*$/gm, m => `<span class="cm">${m.slice(2)}</span>`);  // 註解行：灰色小標
   if (/^\s*[{\[]/.test(text)) {
     h = h.replace(/("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g, (m, str, colon, bool, num) => {
       if (str) return colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`;
